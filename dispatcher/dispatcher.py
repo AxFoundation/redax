@@ -29,13 +29,13 @@ def main():
     control_mc = daqnt.get_client('daq')
     runs_mc = daqnt.get_client('runs')
     logger = daqnt.get_daq_logger(config['LogName'], level=args.log, mc=control_mc)
-    vme_config = json.loads(config['VMEConfig'])
+    crate_config = json.loads(config['CrateConfig'])
 
     # Declare necessary classes
     sh = daqnt.SignalHandler()
     SlackBot = daqnt.DaqntBot(os.environ['SLACK_KEY'])
     Hypervisor = daqnt.Hypervisor(control_mc[config['ControlDatabaseName']], logger,
-            daq_config['tpc'], vme_config, sh=sh, testing=args.test, slackbot=SlackBot)
+            daq_config['tpc'], crate_config, sh=sh, testing=args.test, slackbot=SlackBot)
     MongoConnector = MongoConnect(config, daq_config, logger, control_mc, runs_mc, Hypervisor, args.test)
     DAQControl = DAQController(config, daq_config, MongoConnector, logger, Hypervisor)
     # connect the triangle
@@ -72,6 +72,7 @@ def main():
 
         # Decision time. Are we actually in our goal state? If not what should we do?
         DAQControl.solve_problem(latest_status, goal_state)
+        Hypervisor.process_control()
 
     MongoConnector.quit()
     return
