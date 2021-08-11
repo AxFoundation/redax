@@ -224,7 +224,10 @@ class MongoConnect(object):
             mode = modes[0]
             run_num = run_nums[0]
             if not _all(modes, mode) or not _all(run_nums, run_num):
+                # Someone did not stop the unlinked (modes)
                 self.logger.error(f'No quorum? {modes}, {run_nums}')
+                for _mode, _run in zip(modes, run_nums):
+                    self.set_stop_time(_run, _mode, force=False)
                 status_list = [DAQ_STATUS.UNKNOWN]
                 mode = 'none'
                 run_num = -1
