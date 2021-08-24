@@ -50,6 +50,7 @@ V1724::V1724(std::shared_ptr<MongoLog>& log, std::shared_ptr<Options>& opts, int
 
 V1724::~V1724(){
   End();
+  if (fFout.is_open()) fFout.close();
   if (fBLTCounter.empty()) return;
   std::stringstream msg;
   msg << "BLT report for board " << fBID;
@@ -71,6 +72,14 @@ int V1724::Init(int link, int crate) {
 
   uint32_t word(0);
   int my_bid(0);
+  std::string fn = "/live_data/caen_format/" + std::to_string(fOptions->GetInt("number", -1));
+  try {
+    std::experimental::filesystem::create_directory(fn);
+    fFout.open(fn + "/" + std::to_string(fBID), std::ios::out | std::ios::binary);
+    fLog->Entry(MongoLog::Local, "Storing a copy of data for CAEN")
+  } catch (...) {
+    fLog->Entry(MongoLog::Local, "Not storing a copy of data for CAEN");
+  }
 
   if (Reset()) {
     fLog->Entry(MongoLog::Error, "Board %i unable to pre-load registers", fBID);
@@ -267,6 +276,7 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
     for (auto& xfer : xfer_buffers) {
       s.append(xfer.first, xfer.second);
     }
+    if (fFout.is_open()) fFout.write((char*)s.data(), s.size()*sizeof(char32_t));
     fBLTCounter[int(std::ceil(std::log2(blt_words)))]++;
     auto [ht, cc] = GetClockInfo(s);
     outptr = std::make_unique<data_packet>(std::move(s), ht, cc);

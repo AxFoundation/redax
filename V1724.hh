@@ -8,6 +8,7 @@
 #include <memory>
 #include <atomic>
 #include <tuple>
+#include <fstream>
 
 class MongoLog;
 class Options;
@@ -83,6 +84,7 @@ protected:
   int fBID;
   unsigned int fBaseAddress;
   int fRegisterFlags;
+  std::ofstream fFout;
 
   // Stuff for clock reset tracking
   int fRolloverCounter;
