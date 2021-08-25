@@ -76,7 +76,7 @@ int V1724::Init(int link, int crate) {
   try {
     std::experimental::filesystem::create_directory(fn);
     fFout.open(fn + "/" + std::to_string(fBID), std::ios::out | std::ios::binary);
-    fLog->Entry(MongoLog::Local, "Storing a copy of data for CAEN")
+    fLog->Entry(MongoLog::Local, "Storing a copy of data for CAEN");
   } catch (...) {
     fLog->Entry(MongoLog::Local, "Not storing a copy of data for CAEN");
   }
