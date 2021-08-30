@@ -72,13 +72,16 @@ int V1724::Init(int link, int crate) {
 
   uint32_t word(0);
   int my_bid(0);
-  std::string fn = "/live_data/caen_format/" + std::to_string(fOptions->GetInt("number", -1));
   try {
+    int run_num = std::to_string(fOptions->GetInt("number", -1));
+    std::string run_name = run_num == -1 ? "run" : std::to_string(run_num);
+    std::experimental::filesystem::path fn("/live_data/caen_format/" + run_name);
     std::experimental::filesystem::create_directory(fn);
-    fFout.open(fn + "/" + std::to_string(fBID), std::ios::out | std::ios::binary);
+    fn /= std::to_string(fBID);
+    fFout.open(fn, std::ios::out | std::ios::binary);
     fLog->Entry(MongoLog::Local, "Storing a copy of data for CAEN");
-  } catch (...) {
-    fLog->Entry(MongoLog::Local, "Not storing a copy of data for CAEN");
+  } catch (std::exception& e) {
+    fLog->Entry(MongoLog::Local, "Not storing a copy of data for CAEN: %s", e.what());
   }
 
   if (Reset()) {
