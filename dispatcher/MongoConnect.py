@@ -84,6 +84,9 @@ class MongoConnect(object):
         self.digi_type = 'V17' if not testing else 'f17'
         self.cc_type = 'V2718' if not testing else 'f2718'
 
+        self.reader_rate_filter = int(config['reader_rate_filter_length'])
+        self.suspicious_rate_ratio = float(config['suspicious_rate_ratio'])
+
         # We will store the latest status from each reader here
         # Format:
         # {
@@ -103,9 +106,11 @@ class MongoConnect(object):
         self.host_config = {}
         self.dc = daq_config
         self.hv_timeout_fix = {}
+        self.reader_rate = {}
         for detector in self.dc:
             self.latest_status[detector] = {'readers': {}, 'controller': {}}
             for reader in self.dc[detector]['readers']:
+                self.reader_rate[reader] = []
                 self.latest_status[detector]['readers'][reader] = {}
                 self.host_config[reader] = detector
                 self.hv_timeout_fix[reader] = now()
@@ -195,11 +200,24 @@ class MongoConnect(object):
             modes = []
             run_nums = []
             for doc in self.latest_status[detector]['readers'].values():
-                phys_det = self.host_config[doc['host']]
+                host = doc['host']
+                phys_det = self.host_config[host]
                 try:
                     aggstat[phys_det]['rate'] += doc['rate']
                     aggstat[phys_det]['buff'] += doc['buffer_size']
                     aggstat[phys_det]['pll_unlocks'] += doc.get('pll', 0)
+                    # we also track the ratio between the 'old rate' (the bytes coming from the digitizer)
+                    # and the 'new rate" (the bytes going to disk), because when these aren't the same
+                    # it usually means some shenanigans are going on and we should restart the run
+                    rate_frac = doc['rate_old']/doc['rate'] if doc['rate'] > 0 else 1
+                    self.reader_rate[host].append(rate_frac)
+                    if len(self.reader_rate[host]) > self.reader_rate_filter:
+                        self.reader_rate[host] = self.reader_rate[host][-self.reader_rate_filter:]
+                    if (len(self.reader_rate[host]) == self.reader_rate_filter and 
+                        sorted(self.reader_rate[host])[self.reader_rate_filter//2] > self.suspicious_rate_ratio
+                        and phys_det == 'tpc'):
+                        # just overwrite it here, simplest this way
+                        doc['status'] = DAQ_STATUS.ERROR
                 except Exception as e:
                     # This is not really important but it's nice if we have it
                     self.logger.debug(f'Rate calculation ran into {type(e)}: {e}')
