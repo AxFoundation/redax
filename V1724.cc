@@ -144,8 +144,11 @@ int V1724::Reset() {
 std::tuple<uint32_t, long> V1724::GetClockInfo(std::u32string_view sv) {
   auto it = sv.begin();
   do {
-    if ((*it)>>28 == 0xA) {
-      uint32_t ht = *(it+3)&0x7FFFFFFF;
+    if ((*it)>>28 == 0xA && ((*it)&0x7FFFFFFF) > 6) {
+      // we skip the event header and go for the first channel timestamp
+      // it doesn't really matter which channel it is, they can't be so different
+      // as to completely fool the logic
+      uint32_t ht = *(it+5)&0x7FFFFFFF;
       return {ht, GetClockCounter(ht)};
     }
   } while (++it < sv.end());
