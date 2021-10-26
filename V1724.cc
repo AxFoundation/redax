@@ -30,6 +30,7 @@ V1724::V1724(std::shared_ptr<MongoLog>& log, std::shared_ptr<Options>& opts, int
   fBoardErrRegister = 0xEF00;
   fInputDelayRegister = 0x8034;
   fInputDelayChRegister = 0x1034;
+  fEventSizeRegister = 0x814C;
   fError = false;
 
   fSampleWidth = 10;
@@ -219,35 +220,33 @@ unsigned int V1724::ReadRegister(unsigned int reg){
 int V1724::Read(std::unique_ptr<data_packet>& outptr){
   using namespace std::chrono;
   auto t_start = high_resolution_clock::now();
-  if ((GetAcquisitionStatus() & 0x8) == 0) return 0;
+  if  return 0;
   // Initialize
   int blt_words=0, nb=0, ret=-5;
   std::vector<std::pair<char32_t*, int>> xfer_buffers;
-  xfer_buffers.reserve(4);
 
-  unsigned count = 0;
-  int alloc_bytes, request_bytes;
+  int alloc_words, request_bytes;
   char32_t* thisBLT = nullptr;
-  do{
-    // each loop allocate more memory than the last one.
-    // there's a fine line to walk between making many small allocations for full digitizers
-    // and fewer, large allocations for empty digitizers. 16 19 20 23 seem to be optimal
-    // for the readers, but this depends heavily on specific machines.
-    if (count < fBLTalloc.size()) {
-      alloc_bytes = 1 << fBLTalloc[count];
-    } else {
-      alloc_bytes = 1 << (fBLTalloc.back() + count - fBLTalloc.size() + 1);
+  while ((GetAcquisitionStatus() & 0x8) != 0) {
+    // how big is the event waiting for readout?
+    if ((alloc_words = ReadRegister(fEventSizeRegister)) == 0xFFFFFFFF) {
+      for (auto& b : xfer_buffers) delete[] b.first;
+      return -1;
+    }
+    if (alloc_words == 0) {
+      fLog->Entry(MongoLog::Message, "Zero-sized event from %i?", fBID);
+      break;
     }
     // Reserve space for this block transfer
-    thisBLT = new char32_t[alloc_bytes/sizeof(char32_t)];
-    request_bytes = alloc_bytes/fBLTSafety;
+    thisBLT = new char32_t[alloc_words];
+    request_bytes = alloc_words * sizeof(char32_t);
 
     ret = CAENVME_FIFOBLTReadCycle(fBoardHandle, fBaseAddress, thisBLT,
 				     request_bytes, cvA32_U_MBLT, cvD64, &nb);
     if( (ret != cvSuccess) && (ret != cvBusError) ){
       fLog->Entry(MongoLog::Error,
 		  "Board %i read error after %i reads: (%i) and transferred %i bytes this read",
-		  fBID, count, ret, nb);
+		  fBID, xfer_buffers.size(), ret, nb);
 
       // Delete all reserved data and fail
       delete[] thisBLT;
@@ -258,11 +257,9 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
         "Board %i got %x more bytes than asked for (headroom %i)",
         fBID, nb-request_bytes, alloc_bytes-nb);
 
-    count++;
     blt_words+=nb/sizeof(char32_t);
     xfer_buffers.emplace_back(std::make_pair(thisBLT, nb/sizeof(char32_t)));
-
-  }while(ret != cvBusError);
+  }
 
   // Now we have to concatenate all this data into a single continuous buffer
   // because I'm too lazy to write a class that allows us to use fragmented

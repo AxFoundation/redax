@@ -72,6 +72,7 @@ protected:
   unsigned int fBoardErrRegister;
   unsigned int fInputDelayRegister;
   unsigned int fInputDelayChRegister;
+  unsigned int fEventSizeRegister;
 
   std::vector<int> fBLTalloc;
   std::map<int, int> fBLTCounter;
