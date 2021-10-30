@@ -230,15 +230,15 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
   while ((GetAcquisitionStatus() & 0x8) != 0) {
     // how big is the event waiting for readout?
     if ((alloc_words = ReadRegister(fEventSizeRegister)) == 0xFFFFFFFF) {
-      for (auto& b : xfer_buffers) delete[] b.first;
-      return -1;
+      ret = 1;
+      break;
     }
     if (alloc_words == 0) {
       fLog->Entry(MongoLog::Message, "Zero-sized event from %i?", fBID);
       break;
     }
-    // Reserve space for this block transfer
-    thisBLT = new char32_t[alloc_words];
+    // Reserve space for this block transfer. Alloc more than "necessary" because CAEN driver
+    thisBLT = new char32_t[int(alloc_words * fBufferSafety)];
     request_bytes = alloc_words * sizeof(char32_t);
 
     ret = CAENVME_FIFOBLTReadCycle(fBoardHandle, fBaseAddress, thisBLT,
@@ -248,14 +248,12 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
 		  "Board %i read error after %i reads: (%i) and transferred %i bytes this read",
 		  fBID, xfer_buffers.size(), ret, nb);
 
-      // Delete all reserved data and fail
       delete[] thisBLT;
-      for (auto& b : xfer_buffers) delete[] b.first;
-      return -1;
+      ret = 1;
     }
     if (nb > request_bytes) fLog->Entry(MongoLog::Message,
         "Board %i got %x more bytes than asked for (headroom %i)",
-        fBID, nb-request_bytes, alloc_bytes-nb);
+        fBID, nb-request_bytes, alloc_words*sizeof(char32_t)-nb);
 
     blt_words+=nb/sizeof(char32_t);
     xfer_buffers.emplace_back(std::make_pair(thisBLT, nb/sizeof(char32_t)));
@@ -264,7 +262,7 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
   // Now we have to concatenate all this data into a single continuous buffer
   // because I'm too lazy to write a class that allows us to use fragmented
   // buffers as if they were continuous
-  if(blt_words>0){
+  if(blt_words>0 && ret != 1){
     std::u32string s;
     s.reserve(blt_words);
     for (auto& xfer : xfer_buffers) {
@@ -276,7 +274,7 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
   }
   for (auto b : xfer_buffers) delete[] b.first;
   fTotReadTime += duration_cast<nanoseconds>(high_resolution_clock::now()-t_start);
-  return blt_words;
+  return ret == 1 ? -1 : blt_words;
 }
 
 int V1724::LoadDAC(std::vector<uint16_t> &dac_values){
