@@ -552,7 +552,7 @@ int DAQController::FitBaselines(std::vector<std::shared_ptr<V1724>> &digis,
             if (!(channel_mask & (1 << ch))) continue;
             std::u32string_view wf;
             std::tie(std::ignore, words, std::ignore, wf) = d->UnpackChannelHeader(sv,
-                0, 0, 0, words, channels_in_event);
+                0, 0, 0, words, channels_in_event, ch);
             vector<int> hist(0x4000, 0);
             for (auto w : wf) {
               val0 = w&0x3FFF;

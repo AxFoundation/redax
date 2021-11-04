@@ -237,7 +237,7 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
       break;
     }
     // Reserve space for this block transfer. Alloc more than "necessary" because CAEN driver
-    thisBLT = new char32_t[int(alloc_words * fBufferSafety)];
+    thisBLT = new char32_t[int(alloc_words * fBLTSafety)];
     request_bytes = alloc_words * sizeof(char32_t);
 
     ret = CAENVME_FIFOBLTReadCycle(fBoardHandle, fBaseAddress, thisBLT,
