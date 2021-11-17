@@ -31,6 +31,8 @@ V1724::V1724(std::shared_ptr<MongoLog>& log, std::shared_ptr<Options>& opts, int
   fInputDelayRegister = 0x8034;
   fInputDelayChRegister = 0x1034;
   fEventSizeRegister = 0x814C;
+  fEventsPerBLTRegister = 0xEF1C;
+  fEventsPerBLT = 2; // default to >1
   fError = false;
 
   fSampleWidth = 10;
@@ -194,6 +196,8 @@ int V1724::WriteRegister(unsigned int reg, unsigned int value){
     fDelayPerCh.assign(fNChannels, 2*fSampleWidth*value);
   else if ((reg & fInputDelayChRegister) == fInputDelayChRegister)
     fDelayPerCh[(reg>>16)&0xF] = 2*fSampleWidth*value;
+  else if (reg == fEventsPerBLTRegister)
+    fEventsPerBLT = value;
   if((ret = CAENVME_WriteCycle(fBoardHandle, fBaseAddress+reg,
 			&write,cvA32_U_DATA,cvD32)) != cvSuccess){
     fLog->Entry(MongoLog::Warning,
@@ -217,15 +221,86 @@ unsigned int V1724::ReadRegister(unsigned int reg){
   return temp;
 }
 
-int V1724::Read(std::unique_ptr<data_packet>& outptr){
+int V1724::Read(std::unique_ptr<data_packet>& outptr) {
+  // We read out quite differently if we're doing one event per BLT or if we're doing a bunch
+  // but the DAQController doesn't need to know the difference so we provide this interface
+  // function and handle everything else under the hood
   using namespace std::chrono;
   auto t_start = high_resolution_clock::now();
+  ret = fEventsPerBLT == 1 ? fReadOneEvent(outptr) : fReadBlock(outptr);
+  fTotReadTime += duration_cast<nanoseconds>(high_resolution_clock::now()-t_start);
+  return ret;
+}
+
+int V1724::ReadBlock(std::unique_ptr<data_packet>& outptr) {
+  // this function reads whatever data is currently stored in the digitizer in one go (generally)
+  if ((GetAcquisitionStatus() & 0x8) == 0) return 0;
   // Initialize
   int blt_words=0, nb=0, ret=-5;
-  std::vector<std::pair<char32_t*, int>> xfer_buffers;
+  std::vector<std::pair<std::u32string, int>> xfer_buffers;
+  xfer_buffers.reserve(2);
+
+  unsigned count = 0;
+  int alloc_bytes, request_bytes;
+  std::u32string thisBLT;
+  do{
+    // each loop allocate more memory than the last one.
+    // there's a fine line to walk between making many small allocations for full digitizers
+    // and fewer, large allocations for empty digitizers. 16 19 20 23 seem to be optimal
+    // for the readers, but this depends heavily on specific machines.
+    if (count < fBLTalloc.size()) {
+      alloc_bytes = 1 << fBLTalloc[count];
+    } else {
+      alloc_bytes = 1 << (fBLTalloc.back() + count - fBLTalloc.size() + 1);
+    }
+    // Reserve space for this block transfer
+    thisBLT = std::u32string(alloc_bytes/sizeof(char32_t), 0);
+    request_bytes = alloc_bytes/fBLTSafety;
+
+    ret = CAENVME_FIFOBLTReadCycle(fBoardHandle, fBaseAddress, thisBLT.data(),
+				     request_bytes, cvA32_U_MBLT, cvD64, &nb);
+    if( (ret != cvSuccess) && (ret != cvBusError) ){
+      fLog->Entry(MongoLog::Error,
+		  "Board %i read error after %i reads: (%i) and transferred %i bytes this read",
+		  fBID, count, ret, nb);
+
+      // Delete all reserved data and fail
+      return -1;
+    }
+    if (nb > request_bytes) fLog->Entry(MongoLog::Message,
+        "Board %i got %x more bytes than asked for (headroom %i)",
+        fBID, nb-request_bytes, alloc_bytes-nb);
+
+    count++;
+    blt_words+=nb/sizeof(char32_t);
+    xfer_buffers.emplace_back(std::make_pair(std::move(thisBLT), nb));
+
+  }while(ret != cvBusError);
+
+  if(blt_words>0){
+    std::u32string s;
+    s.reserve(std::accumulate(xfer_buffers.begin(), xfer_buffers.end(), 0, [&](int tot, auto& p){return tot + p.second;}));
+    for (auto& p : xfer_buffers)
+      s.append(p.first.data(), p.second);
+    auto [ht, cc] = GetClockInfo(s);
+    outptr = std::make_unique<data_packet>(std::move(s), ht, cc);
+  }
+  for (auto&& p : xfer_buffers) {
+    // is this necessary?
+    p.first.clear();
+    p.first.shrink_to_fit();
+  }
+  return blt_words;
+}
+
+int V1724::ReadOneEvent(std::unique_ptr<data_packet>& outptr){
+  // Initialize
+  int blt_words=0, nb=0, ret=-5;
+  std::vector<std::u32string> xfer_buffers;
+  xfer_buffers.reserve(16); // don't know if 16 is reasonable but if we have to expand this is slow and empty strings are cheap
 
   int alloc_words, request_bytes;
-  char32_t* thisBLT = nullptr;
+  std::u32string thisBLT;
   while ((GetAcquisitionStatus() & 0x8) != 0) {
     // how big is the event waiting for readout?
     if ((alloc_words = ReadRegister(fEventSizeRegister)) == 0xFFFFFFFF) {
@@ -236,18 +311,18 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
       fLog->Entry(MongoLog::Message, "Zero-sized event from %i?", fBID);
       break;
     }
-    // Reserve space for this block transfer. Alloc more than "necessary" because CAEN driver
-    thisBLT = new char32_t[int(alloc_words * fBLTSafety)];
+    // Reserve space for this block transfer. No extra alloc because we do things one event at a time
+    thisBLT = std::u32string(alloc_words, 0);
     request_bytes = alloc_words * sizeof(char32_t);
 
-    ret = CAENVME_FIFOBLTReadCycle(fBoardHandle, fBaseAddress, thisBLT,
+    ret = CAENVME_FIFOBLTReadCycle(fBoardHandle, fBaseAddress, thisBLT.data(),
 				     request_bytes, cvA32_U_MBLT, cvD64, &nb);
     if( (ret != cvSuccess) && (ret != cvBusError) ){
       fLog->Entry(MongoLog::Error,
 		  "Board %i read error after %i reads: (%i) and transferred %i bytes this read",
 		  fBID, xfer_buffers.size(), ret, nb);
 
-      delete[] thisBLT;
+      thisBLT.clear();
       ret = 1;
     }
     if (nb > request_bytes) fLog->Entry(MongoLog::Message,
@@ -255,24 +330,29 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
         fBID, nb-request_bytes, alloc_words*sizeof(char32_t)-nb);
 
     blt_words+=nb/sizeof(char32_t);
-    xfer_buffers.emplace_back(std::make_pair(thisBLT, nb/sizeof(char32_t)));
+    xfer_buffers.emplace_back(std::move(thisBLT));
   }
 
-  // Now we have to concatenate all this data into a single continuous buffer
-  // because I'm too lazy to write a class that allows us to use fragmented
-  // buffers as if they were continuous
   if(blt_words>0 && ret != 1){
     std::u32string s;
-    s.reserve(blt_words);
-    for (auto& xfer : xfer_buffers) {
-      s.append(xfer.first, xfer.second);
+    if (xfer_buffers.size() == 1) {
+      // shortcut if only one event to save an alloc, and you know how I feel about saving allocs
+      s == std::move(xfer_buffers.front());
+    } else {
+      // now we concatenate because we don't have a custom data structure that allows
+      // us to use a fragmented buffer.
+      s.reserve(blt_words);
+      for (auto& b : xfer_buffers)
+        s += b;
     }
-    fBLTCounter[int(std::ceil(std::log2(blt_words)))]++;
     auto [ht, cc] = GetClockInfo(s);
     outptr = std::make_unique<data_packet>(std::move(s), ht, cc);
   }
-  for (auto b : xfer_buffers) delete[] b.first;
-  fTotReadTime += duration_cast<nanoseconds>(high_resolution_clock::now()-t_start);
+  for (auto&& b : xfer_buffers) {
+    // is this necessary?
+    b.clear();
+    b.shrink_to_fit();
+  }
   return ret == 1 ? -1 : blt_words;
 }
 

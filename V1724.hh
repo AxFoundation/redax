@@ -73,6 +73,7 @@ protected:
   unsigned int fInputDelayRegister;
   unsigned int fInputDelayChRegister;
   unsigned int fEventSizeRegister;
+  unsigned int fEventsPerBLTRegister;
 
   std::vector<int> fBLTalloc;
   std::map<int, int> fBLTCounter;
@@ -81,6 +82,8 @@ protected:
   bool MonitorRegister(uint32_t reg, uint32_t mask, int ntries, int sleep, uint32_t val=1);
   virtual std::tuple<uint32_t, long> GetClockInfo(std::u32string_view);
   virtual int GetClockCounter(uint32_t);
+  virtual int ReadOneEvent(std::unique_ptr<data_packet>&);
+  virtual int ReadBlock(std::unique_ptr<data_packet>&);
   int fBoardHandle;
   int fBID;
   unsigned int fBaseAddress;
@@ -99,6 +102,7 @@ protected:
   int fSampleWidth, fClockCycle;
   int16_t fArtificialDeadtimeChannel;
   std::chrono::nanoseconds fTotReadTime;
+  int fEventsPerBLT;
 };
 
 

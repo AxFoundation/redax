@@ -25,7 +25,7 @@ std::tuple<int64_t, int, uint16_t, std::u32string_view>
 V1730::UnpackChannelHeader(std::u32string_view sv, long, uint32_t, uint32_t, int, int, short ch) {
   // returns {timestamp (ns), words this channel, baseline, waveform}
   int words = sv[0]&0x7FFFFF;
-  return {(long(sv[1]) | (long(sv[2]&0xFFFF)<<32))*fClockCycle - fInputDelay[ch],
+  return {(long(sv[1]) | (long(sv[2]&0xFFFF)<<32))*fClockCycle - fDelayPerCh[ch],
           words,
           (sv[2]>>16)&0x3FFF,
           sv.substr(3, words-3)};
