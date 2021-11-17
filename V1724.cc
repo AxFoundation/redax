@@ -227,7 +227,7 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr) {
   // function and handle everything else under the hood
   using namespace std::chrono;
   auto t_start = high_resolution_clock::now();
-  ret = fEventsPerBLT == 1 ? fReadOneEvent(outptr) : fReadBlock(outptr);
+  int ret = fEventsPerBLT == 1 ? ReadOneEvent(outptr) : ReadBlock(outptr);
   fTotReadTime += duration_cast<nanoseconds>(high_resolution_clock::now()-t_start);
   return ret;
 }
