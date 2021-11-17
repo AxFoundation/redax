@@ -295,12 +295,12 @@ int V1724::ReadBlock(std::unique_ptr<data_packet>& outptr) {
 
 int V1724::ReadOneEvent(std::unique_ptr<data_packet>& outptr){
   // Initialize
-  int blt_words=0, nb=0, ret=-5;
+  int blt_words=0, nb=0, ret=-5, request_bytes=0;
+  unsigned int alloc_words;
+  std::u32string thisBLT;
   std::vector<std::u32string> xfer_buffers;
   xfer_buffers.reserve(16); // don't know if 16 is reasonable but if we have to expand this is slow and empty strings are cheap
 
-  int alloc_words, request_bytes;
-  std::u32string thisBLT;
   while ((GetAcquisitionStatus() & 0x8) != 0) {
     // how big is the event waiting for readout?
     if ((alloc_words = ReadRegister(fEventSizeRegister)) == 0xFFFFFFFF) {
