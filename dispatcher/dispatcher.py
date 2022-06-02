@@ -62,6 +62,7 @@ def setup():
 
 def main(config, control_mc, logger, daq_config, vme_config, SlackBot, runs_mc, args):
     sh = daqnt.SignalHandler()
+    sleep_period = int(config['PollFrequency'])
 
     # Declare necessary classes
     hv = Hypervisor(
@@ -73,14 +74,15 @@ def main(config, control_mc, logger, daq_config, vme_config, SlackBot, runs_mc, 
         testing=args.test,
         slackbot=SlackBot,
     )
-    mc = MongoConnect(config, daq_config, logger, control_mc, runs_mc, hv, args.test)
-    dc = DAQController(config, daq_config, mc, logger, hv)
+    gps_start = config['StartWithGPS'].split()
+    gps_period = int(config['GPSPeriod')
+    mc = MongoConnect(config, daq_config, logger, control_mc, runs_mc, hv, args.test, sleep_period, gps_start, gps_period)
+    dc = DAQController(config, daq_config, mc, logger, hv, sleep_period, gps_start)
 
     # connect the triangle
     hv.mongo_connect = mc
     hv.daq_controller = dc
 
-    sleep_period = int(config['PollFrequency'])
 
     last_loop_dt = 0
 

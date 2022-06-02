@@ -53,7 +53,7 @@ class MongoConnect(object):
 
     """
 
-    def __init__(self, config, daq_config, logger, control_mc, runs_mc, hypervisor, testing=False):
+    def __init__(self, config, daq_config, logger, control_mc, runs_mc, hypervisor, testing=False, logic_timer, gps_start_detectors, gps_period):
 
         # Define DB connectivity. Log is separate to make it easier to split off if needed
         dbn = config['ControlDatabaseName']
@@ -75,6 +75,7 @@ class MongoConnect(object):
             'log': self.dax_db['log'],
             'options': self.dax_db['options'],
             'run': self.runs_db[config['RunsDatabaseCollection']],
+            'gps': self.runs_db['gps_sync'],
         }
 
         self.error_sent = {}
@@ -147,6 +148,10 @@ class MongoConnect(object):
         self.command_thread = threading.Thread(target=self.process_commands)
         self.command_thread.start()
 
+        self.gps_start_detectors = gps_start_detectors
+        self.gps_period = gps_period
+        self.logic_timer = logic_timer
+
     def quit(self):
         self.run = False
         try:
@@ -197,14 +202,15 @@ class MongoConnect(object):
         each node we know about
         """
         try:
+            sort=[('_id', -1)]
             for detector in dc.keys():
                 for host in dc[detector]['readers'].keys():
                     doc = self.collections['node_status'].find_one({'host': host},
-                                                                   sort=[('_id', -1)])
+                                                                   sort=sort)
                     dc[detector]['readers'][host] = doc
                 for host in dc[detector]['controller'].keys():
                     doc = self.collections['node_status'].find_one({'host': host},
-                                                                    sort=[('_id', -1)])
+                                                                    sort=sort)
                     dc[detector]['controller'][host] = doc
         except Exception as e:
             self.logger.error(f'Got error while getting update: {type(e)}: {e}')
@@ -214,6 +220,22 @@ class MongoConnect(object):
 
         # Now compute aggregate status
         return self.latest_status if self.aggregate_status() is None else None
+
+    def time_to_next_gps(self):
+        """
+        In how many seconds can we expect the next GPS signal?
+        """
+        # how long ago was the most recent signal?
+        utc = self.get_gps_time()[2]
+        dt = now().timestamp() - utc
+        return self.gps_period - dt
+
+    def get_gps_time(self):
+        """
+        Return the most recent GPS timestamp, and its UTC equivalent (approx)
+        """
+        doc = self.collections['gps'].find_one({'channel': 0}, sort=[('_id', -1)])
+        return doc['gps_sec'], doc['gps_ns'], int(str(doc['_id'])[:8], 16)
 
     def clear_error_timeouts(self):
         self.error_sent = {}
@@ -487,14 +509,14 @@ class MongoConnect(object):
             return None
         base_doc = self.collections['options'].find_one({'name': mode})
         if base_doc is None:
-            self.log_error("Mode '%s' doesn't exist" % mode, "info", "info")
+            self.log_error(f"Mode '{mode}' doesn't exist", "info", "info")
             return None
         if 'includes' not in base_doc or len(base_doc['includes']) == 0:
             return base_doc
         try:
             if self.collections['options'].count_documents({'name':
                 {'$in': base_doc['includes']}}) != len(base_doc['includes']):
-                self.log_error("At least one subconfig for mode '%s' doesn't exist" % mode, "WARNING", "WARNING")
+                self.log_error(f"At least one subconfig for mode '{mode}' doesn't exist", "WARNING", "WARNING")
                 return None
             return list(self.collections["options"].aggregate([
                 {'$match': {'name': mode}},
@@ -507,7 +529,7 @@ class MongoConnect(object):
                 {'$project': {'_id': 0, 'description': 0, 'includes': 0, 'subconfig': 0}},
                 ]))[0]
         except Exception as e:
-            self.logger.error("Got a %s exception in doc pulling: %s" % (type(e), e))
+            self.logger.error(f"Got a {type(e)} exception in doc pulling: {e}")
         return None
 
     def get_hosts_for_mode(self, mode, detector=None):
@@ -733,7 +755,7 @@ class MongoConnect(object):
         if ( (etype in self.error_sent and self.error_sent[etype] is not None) and
              (etype in self.error_timeouts and self.error_timeouts[etype] is not None) and 
              (nowtime-self.error_sent[etype]).total_seconds() <= self.error_timeouts[etype]):
-            self.logger.debug("Could log error, but still in timeout for type %s"%etype)
+            self.logger.debug(f"Could log error, but still in timeout for type {type}")
             return
         self.error_sent[etype] = nowtime
         try:
@@ -744,7 +766,7 @@ class MongoConnect(object):
             })
         except Exception as e:
             self.logger.error(f'Database error, can\'t issue error message: {type(e)}, {e}')
-        self.logger.info("Error message from dispatcher: %s" % (message))
+        self.logger.info(f"Error message from dispatcher: {message}")
         return
 
     def get_run_start(self, number):
@@ -777,10 +799,11 @@ class MongoConnect(object):
             'user': self.goal_state[detector]['user'],
             'mode': self.goal_state[detector]['mode'],
             'bootstrax': {'state': None},
-            'end': None
+            'end': None,
+            'gps_start': [0,0],
         }
 
-        # If there's a source add the source. Also add the complete ini file.
+        # If there's a source add the source. Also add the complete config
         cfg = self.get_run_mode(self.goal_state[detector]['mode'])
         if cfg is not None and 'source' in cfg.keys():
             run_doc['source'] = str(cfg['source'])
@@ -802,13 +825,30 @@ class MongoConnect(object):
                 'location': cfg['strax_output_path']
             }]
 
-        # The cc needs some time to get started
-        time.sleep(self.cc_start_wait)
-        try:
-            start_time = self.get_ack_time(detector, 'start')
-        except Exception as e:
-            self.logger.error('Couldn\'t find start time ack')
-            start_time = None
+        if detector in self.gps_start_detectors:
+            # wait for GPS signal to come along
+            time.sleep(self.time_to_next_gps()+0.5)
+            try:
+                gps_sec, gps_ns, utc = self.get_gps_time()
+                if (now().timestamp() - utc) < self.logic_timer:
+                    # we got the freshest entry
+                    start_time = datetime.datetime.fromtimestamp(gps_sec + gps_ns/1e9,
+                            tz=pytz.utc)
+                    run_doc['gps_start'] = [gps_sec, gps_ns]
+                else:
+                    self.logger.error(f'GPS timestamp too old? {gps_sec}, {gps_ns}, {utc}')
+                    start_time = None
+            except Exception as e:
+                self.logger.error('Couldn\'t find a start time')
+                start_time = None
+        else:
+            # The cc needs some time to get started
+            time.sleep(self.cc_start_wait)
+            try:
+                start_time = self.get_ack_time(detector, 'start')
+            except Exception as e:
+                self.logger.error('Couldn\'t find start time ack')
+                start_time = None
 
         if start_time is None:
             start_time = now()-datetime.timedelta(seconds=2)

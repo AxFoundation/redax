@@ -21,7 +21,7 @@ class DAQController():
     resetting of runs (the ~hourly stop/start) during normal operations.
     """
 
-    def __init__(self, config, daq_config, mongo_connector, logger, hypervisor):
+    def __init__(self, config, daq_config, mongo_connector, logger, hypervisor, logic_timer, gps_start_detectors):
 
         self.mongo = mongo_connector
         self.hypervisor = hypervisor
@@ -43,7 +43,7 @@ class DAQController():
 
         # Timeout properties come from config
         self.timeouts = {
-                k.lower() : int(config['%sCommandTimeout' % k])
+                k.lower() : int(config[f'{k}CommandTimeout'])
                 for k in ['Arm','Start','Stop']}
         self.stop_retries = int(config['RetryReset'])
 
@@ -57,6 +57,9 @@ class DAQController():
         self.one_detector_arming = False
         self.start_cmd_delay = float(config['StartCmdDelay'])
         self.stop_cmd_delay = float(config['StopCmdDelay'])
+
+        self.logic_timer = logic_timer
+        self.gps_start_detectors = gps_start_detectors
 
     def solve_problem(self, latest_status, goal_state):
         """
@@ -154,7 +157,7 @@ class DAQController():
                 # Deal separately with the TIMEOUT and ERROR statuses, by stopping the detector if needed
                 elif latest_status[det]['status'] == DAQ_STATUS.TIMEOUT:
                     self.logger.info(f"The {det} is in timeout, check timeouts")
-                    self.logger.debug("Checking %s timeouts", det)
+                    self.logger.debug(f"Checking {det} timeouts")
                     self.handle_timeout(detector=det)
 
                 elif latest_status[det]['status'] == DAQ_STATUS.ERROR:
@@ -214,7 +217,7 @@ class DAQController():
             gs = self.goal_state
             if command == 'arm':
                 if self.one_detector_arming:
-                    self.logger.info('Another detector already arming, can\'t arm %s' % detector)
+                    self.logger.info(f"Another detector already arming, can't arm {detector}")
                     # this leads to run number overlaps
                     return 1
                 readers, cc = self.mongo.get_hosts_for_mode(gs[detector]['mode'])
@@ -222,9 +225,17 @@ class DAQController():
                 delay = 0
                 self.one_detector_arming = True
             elif command == 'start':
+                delay = self.start_cmd_delay
+                if detector in self.gps_start_detectors:
+                    dt = self.mongo.time_to_next_gps()
+                    if 1 < dt < self.logic_timer+1:
+                        # can't start unless there's a GPS signal in the offing
+                        # we give it at least 1 second
+                        self.logger.debug(f'Waiting for GPS signal to start {detector}')
+                        return 0
+                    delay = 0
                 readers, cc = self.mongo.get_hosts_for_mode(ls[detector]['mode'])
                 hosts = (readers, cc)
-                delay = self.start_cmd_delay
                 #Reset arming timeout counter 
                 self.missed_arm_cycles[detector]=0
             else: # stop
@@ -249,8 +260,8 @@ class DAQController():
                 return 0
 
         else:
-            self.logger.debug('Can\'t send %s to %s, timeout at %i/%i' % (
-                command, detector, dt, self.timeouts[command]))
+            self.logger.debug(f'Can\'t send {command} to {detector}, '
+                                f'timeout at {int(dt)}/{self.timeouts[command]}')
             return 1
         return 0
 
@@ -291,8 +302,8 @@ class DAQController():
         local_timeouts['stop'] = self.timeouts['stop']*(self.error_stop_count[detector]+1)
 
         if dt < local_timeouts[command]:
-            self.logger.debug('%i is within the %i second timeout for a %s command' %
-                    (dt, local_timeouts[command], command))
+            self.logger.debug(f'{int(dt)} is within the {local_timeouts[command]} '
+                    f'second timeout for a {command} command')
         else:
             # timing out, maybe send stop?
             if command == 'stop':
@@ -320,13 +331,12 @@ class DAQController():
                     self.error_stop_count[detector] += 1
             else:
                 self.mongo.log_error(
-                        ('%s took more than %i seconds to %s, indicating a possible timeout or error' %
-                            (detector, self.timeouts[command], command)),
+                        (f'{detector} took more than {self.timeouts[command]} seconds '
+                        f'to {command}, indicating a possible timeout or error'),
                         'ERROR',
-                        '%s_TIMEOUT' % command.upper())
+                        f'{command.upper()}_TIMEOUT')
                 #Keep track of how often the arming sequence times out
-                if self.control_detector(detector=detector, command='stop') == 0:
-                    # only increment the counter if we actually issued a STOP
+                if self.control_detector(detector=detector, command='stop') == 0: # only increment the counter if we actually issued a STOP
                     self.missed_arm_cycles[detector] += 1
                     self.logger.info(f'{detector} missed {self.missed_arm_cycles[detector]} arm cycles')
                 else:
@@ -358,8 +368,9 @@ class DAQController():
         time_now = now()
         run_length = int(self.goal_state[detector]['stop_after'])*60
         run_duration = (time_now - start_time).total_seconds()
-        self.logger.debug('Checking run turnover for %s: %i/%i' % (detector, run_duration, run_length))
+        self.logger.debug(f'Checking run turnover for {detector}: '
+                f'{run_duration}/{run_length}')
         if run_duration > run_length:
-            self.logger.info('Stopping run for %s' % detector)
+            self.logger.info(f'Stopping run for {detector}')
             self.control_detector(detector=detector, command='stop')
 
