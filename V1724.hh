@@ -8,6 +8,7 @@
 #include <memory>
 #include <atomic>
 #include <tuple>
+#include <string_view>
 
 class MongoLog;
 class Options;

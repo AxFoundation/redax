@@ -27,12 +27,20 @@ long compress_lz4(std::shared_ptr<std::string>& in, std::shared_ptr<std::string>
   // just slightly in the meantime. So if you update and it breaks you'll have to tune at least
   // the LZ4F_preferences_t object to the new format.
   // Can tune here as needed, these are defaults from the LZ4 examples
-  LZ4F_preferences_t kPrefs = {
-    { LZ4F_max256KB, LZ4F_blockLinked, LZ4F_noContentChecksum, LZ4F_frame, 0, { 0, 0 } },
-      0,   /* compression level; 0 == default */
-      0,   /* autoflush */
-      { 0, 0, 0 },  /* reserved, must be set to 0 */
-  };
+  //LZ4F_preferences_t kPrefs = {
+  //  { LZ4F_max256KB, LZ4F_blockLinked, LZ4F_noContentChecksum, LZ4F_frame, 0, { 0, 0 } },
+  //    0,   /* compression level; 0 == default */
+  //    0,   /* autoflush */
+  //    { 0, 0, 0 },  /* reserved, must be set to 0 */
+  //};
+  static const LZ4F_preferences_t kPrefs = {
+	  { LZ4F_max256KB, LZ4F_blockLinked, LZ4F_noContentChecksum, LZ4F_frame,
+		0 /* unknown content size */, 0 /* no dictID */ , LZ4F_noBlockChecksum },
+	0,   /* compression level; 0 == default */
+    0,   /* autoflush */
+    0,   /* favor decompression speed */
+    { 0, 0, 0 },  /* reserved, must be set to 0 */
+	};
   long max_compressed_size = LZ4F_compressFrameBound(size_in, &kPrefs);
   out = std::make_shared<std::string>(max_compressed_size, 0);
   return LZ4F_compressFrame(out->data(), max_compressed_size, in->data(), size_in, &kPrefs);
