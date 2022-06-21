@@ -233,7 +233,16 @@ unsigned int V1724::ReadRegister(unsigned int reg){
 int V1724::Read(std::unique_ptr<data_packet>& outptr){
   using namespace std::chrono;
   auto t_start = high_resolution_clock::now();
-  if ((GetAcquisitionStatus() & 0x8) == 0) return 0;
+  auto status = GetAcquisitionStatus();
+  if ((status & 0x8) == 0) return 0;
+  if (status & 0x10) {
+    // we're busy, let's check which channel
+    std::string msg = "Board " + std::to_string(fBID) + " is BUSY:";
+    for (unsigned ch = 0; ch < fNChannels; ch++) {
+      if (ReadRegister(fChStatusRegister + 0x100*ch) & 0x1) msg += " CH" + std::to_string(ch);
+    }
+    fLog->Entry(MongoLog::Local, msg);
+  }
   // Initialize
   int total_bytes=0, nb=0, ret=-5;
 

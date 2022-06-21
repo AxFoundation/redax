@@ -60,9 +60,10 @@ These values are valid throughout the entire DAQ.
 
 ### db.aggregate_status
 
-This collection should also be configured as **capped**. It is written to by the dispatcher only and provides the 
-status history of the system on a detector level, which is a more palatable thing for operators to deal with. It is 
-mostly redundant compared to status, except that it depends also on the state document given to the dispatcher. 
+This collection should also be configured as **capped**.
+It is written to by the dispatcher only and provides the status history of the system on a detector level, which is a more palatable thing for operators to deal with.
+It is mostly redundant compared to status, except that it depends also on the state document given to the dispatcher.
+The provided dispatcher will automatically clean out documents from this collection at the start of every month, numpy-fying and compressing them.
 
 The document format is similar to status:
 ```python
@@ -144,7 +145,10 @@ This is where the DAQ options are stored. It got its own chapter. Please see [he
 
 ### db.log
 
-Sometimes the DAQ wants to inform users of some problem or exceptional circumstance. This is what the log is for. In the beginning we'll also include lots of debug output.
+Sometimes the DAQ wants to inform users of some problem or exceptional circumstance.
+This is what the log is for.
+In the beginning we'll also include lots of debug output.
+Cap this collection to something reasonable, probably some hundreds of MB.
 
 The log documents have the following format:
 Basic log documents have the following simple format:
@@ -170,9 +174,12 @@ gives the standard priorities:
 |5	|USER	|Users can put messages into the log with the web frontend. |
 
 **Setting a time-to-live (TTL) for debug logs**
-Maybe you want to put some debug info into the logs so it's available during normal operation, but maybe we don't necessarily need to store this debug information until the end of time. You can put (and we did put) a MongoDB TTL index on the log collection that expires documents after one week if they contain the datetime field 'expire_from'. So if you want your docs to expire make sure to set 'expire_from' to datetime.now() or new Date() or whatever such that they are caught by this index.
+Maybe you want to put some debug info into the logs so it's available during normal operation, but maybe we don't necessarily need to store this debug information until the end of time.
+You can put (and we did put) a MongoDB TTL index on the log collection that expires documents after one week if they contain the datetime field 'expire_from'.
+So if you want your docs to expire make sure to set 'expire_from' to datetime.now() or new Date() or whatever such that they are caught by this index.
 
-Note! Setting this field will cause all documents to expire, not just DEBUG level. So really only include this field if you're sure the message you're sending will not be interesting for debugging things in the future.
+Note! Setting this field will cause all documents to expire, not just DEBUG level.
+So really only include this field if you're sure the message you're sending will not be interesting for debugging things in the future.
 
 ## The Runs Database
 

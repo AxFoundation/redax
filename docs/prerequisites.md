@@ -21,7 +21,7 @@ The most basic system will consist of a CAEN V1724 connected via optical link to
 
 ## Libraries from the package repo
 
-  * [LZ4](http://lz4.org) is needed as the primary compression algorithm.
+  * [LZ4](http://lz4.org) is needed as the primary compression algorithm. Note that redax was developed against a particularly antiquated version of this library, so if you get a newer one from github then shenanigans might ensue.
   * [Blosc](http://blosc.org/) is the secondary for compression algorithm.
   * Normal build libraries required. Support for C++17 is required.
 
@@ -37,7 +37,7 @@ Both of these are available from [CAEN](http://www.caen.it) directly. We also ma
 
 ## MongoDB CXX Driver
 
-This is a condensation of the instructions found [here](https://mongodb.github.io/mongo-cxx-driver/mongocxx-v3/installation)
+This is a condensation of the instructions found [here](https://mongodb.github.io/mongo-cxx-driver/mongocxx-v3/installation). If in doubt, follow those instructions rather than these.
 
 ### Step 1: Build mongo C driver
 The CXX driver depends on the C driver now.
@@ -46,8 +46,8 @@ The CXX driver depends on the C driver now.
 2. untar `tar -xvzf mongo-c-driver-1.9.2.tar.gz`
 3. See instructions [here](http://mongoc.org/libmongoc/current/installing.html). We're not gonna mess with the package repo versions but will compile from source.
 4. prerequisites: `sudo apt-get install pkg-config libssl-dev libsasl2-dev`
-5. `./configure –disable-automatic-init-and-cleanup`
-6. `make && sudo make install`
+5. `./configure –disable-automatic-init-and-cleanup`. If you get a version newer than 1.9.2 you will probably need to use cmake here rather than configure. Follow Mongo's documentation if there's any uncertainty.
+6. `make -j && sudo make install`
 
 That's it! It worked perfectly the first time when we did it on a fresh system.
 
@@ -56,10 +56,10 @@ That's it! It worked perfectly the first time when we did it on a fresh system.
 1. get code: `git clone https://github.com/mongodb/mongo-cxx-driver.git –branch releases/stable –depth 1` Note this gets the newest stable release. For deployment might want to fix a version and update only at fixed times.
 2. `cd mongo-cxx-driver/build`
 3. `cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local ..` The docs make special note not to forget the trailing '..'
-4. Install polyfill (just in case?) `sudo make EP_mnmlstc_core`
-5. `make && sudo make install`
+4. Install polyfill (just in case?) `sudo make -j EP_mnmlstc_core`
+5. `make -j && sudo make install`
 
-That's it. 
+That's it.
 
 ## Installing MongoDB Server
 

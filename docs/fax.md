@@ -56,6 +56,7 @@ The first three steps (location, size, and hitpattern) are performed in a static
 This makes pulses show up in the digitizers at quasi-realistic intervals.
 Once hits (PMT id and time) are generated, these are sorted out into digitizer-specific parts and sent to each digitizer.
 Each digitizer has its own thread that is uses to convert PMT id's and times into waveforms, for which it takes a single photon model and randomly generates a scale factor (normally distributed about 1 with a width of 0.15).
+This single photon model is characteristic of an R11410.
 This is then converted into the expected format and added to its internal buffer.
 When the main readout thread "reads" from the digitizer, it just takes whatever contents are in this buffer (technically it takes the whole buffer via std::move).
 From this point, the fax pulses are "indistinguishable" from real pulses and exhibit all the usual digitizer features like saturation and clock rollovers (though rollovers are tracked differently because asynchronous event generation).
@@ -91,6 +92,6 @@ The script takes a handful of options:
 
 This script will divide boards as evenly as possible among as few links as are necessary to support the number of boards, so 7 boards will all go on one link, and 9 boards will end up with 4 on one link and 5 on another.
 PMTs are assigned as discussed above.
-As there is no f2718 (yet), the only way to start the process is by software, rather than an S-IN signal, so make sure that the config is set appropriately.
+As there is no "functional" f2718 (its function in the broader scope is served by its mere existence), the only way to start the process is by software, rather than an S-IN signal, so make sure that the config is set appropriately.
 There is only one thread that relies on real-time, so there is no impact on the synchronization of the "digitizers".
 

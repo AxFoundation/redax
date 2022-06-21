@@ -12,6 +12,9 @@ V1724(log, opts, bid, address) {
   fDefaultPreTrig = 0; // no default provided
   fPreTrigRegister = 0x8114; // actually the post-trig register
   fPreTrigChRegister = 0xFFFFFFFF; // disabled
+  // the MV is offset by ~2.5us relative to the other detectors for reasons
+  // related to trigger formation. This is the easiest way to handle this
+  fConstantTimeOffset = opts->GetInt("mv_time_offset", 2420);
 }
 
 V1724_MV::~V1724_MV(){}
@@ -26,7 +29,7 @@ V1724_MV::UnpackChannelHeader(std::u32string_view sv, long rollovers,
   // short and polled frequently compared to the rollover timescale, so there
   // will never be a large difference in timestamps in one data packet
   // also 'fPreTrig' is actually the post-trigger, so we convert back here
-  int pre_trig_ns = words * 2 * fSampleWidth - fPreTrigPerCh[ch];
+  int pre_trig_ns = words * 2 * fSampleWidth - fPreTrigPerCh[ch] + fConstantTimeOffset;
   if (event_time > 15e8 && header_time < 5e8 && rollovers != 0) rollovers--;
   else if (event_time < 5e8 && header_time > 15e8) rollovers++;
   return {((rollovers<<31)+event_time)*fClockCycle - pre_trig_ns,

@@ -153,7 +153,7 @@ Here is an example:
 | ----- | ----------- |
 | reg | String. The register to write to. **Hex**. |
 | val | String. The value to write. **Hex**. |
-| board | Varies. If "all", the write will go to all boards. If a different string, will go to all boards servicing the specified detector. If an int, will go to the board with that identifier. |
+| board | Varies. If "all", the write will go to all boards. If a different string like "tpc", will go to all boards servicing the specified detector. If an int, will go to the board with that identifier. |
 
 ## V2718
 
@@ -209,9 +209,9 @@ Various options that tell redax how to run.
 | Option | Description |
 | -------- | ---------- |
 | run_start | Tells the DAQ whether to start the run via register or S-in. 0 for register, 1 for S-in. Note that starting by register means that the digitizer clocks will not be synchronized. This can be fine if you run with an external trigger and use the trigger time as synchronization signal. If running in triggerless mode you need to run with '1' and have your hardware set up accordingly. |
-| baseline_dac_mode | cached/fixed/fit. This defines how the DAC-offset values per channel are set. If set to "cached" the program will load cached baselines from the run specified in *baseline_reference_run*. If it can't find that run it will fall back to the value in *baseline_fixed_value*. If set to "fixed" it will use *baseline_fixed_value* in any case. If set to 'fit' it will attempt to adjust the DAC offset values until the baseline for each channel matches the value in *baseline_value*. If using negative voltage signals the default value of 16000 is a good one. Baselines for each run are cached in the *dac_values* collection of the daq database. |
+| baseline_dac_mode | cached/fixed/fit. This defines how the DAC-offset values per channel are set. If set to "cached" the program will load cached baselines from the run specified in *baseline_reference_run*. If it can't find that run it will fall back to the value in *baseline_fixed_value*. If set to "fixed" it will use *baseline_fixed_value* in any case. If set to 'fit' it will attempt to adjust the DAC offset values until the baseline for each channel matches the value in *baseline_value*. If using negative voltage signals the default value of 16000 is a good one. Baselines for each run are cached in the *dac_values* collection of the daq database. Note that this field can be a dictionary, with keys specifying detectors and values what is given above, for instance `{"tpc": "fit", "neutron_veto": "cachd"}` |
 | baseline_fallback_mode | cached/fixed/fail. Sometimes the baseline fitting routine doesn't converge. This option determines what happens in this case (only the non-converging channels are affected). Default is 'fail'. |
-| baseline_reference_run | Int. If either 'baseline_dac_mode' or 'baseline_fallback_mode' are set to 'cached' it will use the values from the run number defined here. |
+| baseline_reference_run | Int. If either 'baseline_dac_mode' or 'baseline_fallback_mode' are set to 'cached' it will use the values from the run number defined here. Nesting is supported as for `baseline_dac_mode`. |
 | baseline_value | Int. If 'baseline_dac_mode' is set to 'fit' it will attempt to adjust the baselines until they hit the decimal value defined here, which must lie between 0 and 16385 for a 14-bit ADC. Default 16000. |
 | baseline_fixed_value | Int. Use this to set the DAC offset register directly with this value. See CAEN documentation for more details. Default 7000. |
 | processing_threads | Dict. The number of threads working on converting data between CAEN and strax format. Should be larger for processes responsible for more boards and can be smaller for processes only reading a few boards. For example, 24 threads will very easily handle a data flow of 200 MB/s (uncompressed) through that instance, but if you aren't expecting that much data then smaller values are fine. The default value is 8, but not specifying this could cause issues with processing. |
@@ -237,7 +237,7 @@ There are various configuration options for the strax output that must be set.
 | ---- | ---- |
 | strax_chunk_overlap | Float. Defines the overlap period between strax chunks in seconds. Make is at least some few times larger than your typical event length. In any case it should be larger than your largest expected event. Default 0.5. |
 | strax_chunk_length | Float. Length of each strax chunk in seconds. There's some balance required here. It should be short enough that strax can process reasonably online, as it waits for each chunk to finish then loads it at once (the size should be digestable). But it shouldn't be so short that it needlessly micro-segments the data. Somewhere vaguely around 10 seconds seems reasonable, in production we use anything between 5 and 21. Default 5. |
-| strax_fragment_payload_bytes | Int. How long are the fragments? In general this should be long enough that it definitely covers the vast majority of your SPE pulses. Our SPE pulses are ~100 samples, so the default value of 220 bytes (2 bytes per sample) provides a small amount of overhead. Undefined behavior if the value is odd, possibly undefined if it isn't a multiple of 4. |
+| strax_fragment_payload_bytes | Int. How long are the fragments? In general this should be long enough that it definitely covers the vast majority of your SPE pulses. Our SPE pulses are ~100 samples, so the default value of 220 bytes (2 bytes per sample) provides a small amount of overhead. Undefined behavior if the value is odd, but expect segfaults. |
 | strax_output_path | String. Where should we write data? This must be a locally mounted data store. Redax will handle sub-directories so just provide the top-level directory where all the live data should go (e.g. `/data/live`). |
 | strax_buffer_num_chunks | Int. How many full chunks should get buffered before writing? Setting this at 1 or lower may cause data loss, and greater than 2 usually means you need more memory in your readout machine. A value of 2 means that if chunks 5 and 6 are buffered, as soon as something in chunk 7 shows up, chunk 5 is dumped to disk. |
 | strax_chunk_phase_limit | Int. Sometimes pulses will show up at the processing stage late (or somehow behind the rest of them). If a pulse is this many chunks behind (or out of phase with) the chunks currently being buffered, log a warning to the database. |
@@ -281,7 +281,7 @@ Note that if there are any skipped channels (for instance, if you are using inpu
 
 ## Trigger thresholds
 
-Redax assigns trigger thresholds using a syntax identical to that of the channel map (above).
+Redax assigns trigger thresholds using a syntax identical to that of the channel map (above). The field is called `thresholds`.
 
 ## Lower-level diagnostic options
 
@@ -302,9 +302,8 @@ Redax accepts a variety of options that control various low-level operations. Th
 | baseline_min_dac | Int. The minimum value you want a digitizer to write to a DAC channel. Default 0 |
 | baseline_adc_to_dac | Float. The scale factor that says how large an adjustment of the DAC to make, given a measured difference of X ADC units. Default -3. |
 | baseline_dac_start | Int. The starting DAC value for the baseline fitting sequence. Closer to the final value is better, but too close might cause some issues. Default 10000. |
-| blt_alloc | Array of integers. An array of (probably increasing) values of how much memory to allocate when reading out a specific board, in log2. Allocating memory is expensive, and it's a waste of time to always allocate a large buffer when the digitizer usually only has one photon, but if a board is full you have to make a lot of single photon-sized allocs to read it all out. Tuning this value depends on what the data looks like and how fast your server allocates memory. [16 19 20 23] is optimal for the XENONnT readout servers, and this saves minutes of CPU time per hour. Default [23]. |
-| blt_safety_factor | Float. Sometimes the digitizer returns more bytes during a BLT readout than you ask for (it depends on the number and size of events in the digitizer's memory). This value is how much less to ask for than you allocate you don't overrun the readout buffer. Default 1.5. |
 | do_sn_check | 0/1. Whether or not to have each board check its serial number during initialization. Default 0. |
 | us_between_reads | Int. How many microseconds to sleep between polling digitizers for data. This has a major performance impact that will matter when under extremely high loads (ie, the bleeding edge of what your server(s) and boards are capable of), but otherwise shouldn't matter much. Default 10. |
-| transfer_batch | Int. After how many readout loops do you send accumulated data packets out for processing? Default 8. |
+| transfer_batch | Int. After how many readout loops do you send accumulated data packets out for processing? Higher values mean less time waiting for mutexes, but too high could lead to problems at the processing stage, especially if rates are very low. Default 8. |
+| mv_time_offset | Int. A constant value to subtract from all timestamps recorded by V1724_MV boards. Default 2420. |
 

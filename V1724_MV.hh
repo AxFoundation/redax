@@ -12,6 +12,7 @@ public:
   virtual std::tuple<int64_t, int, uint16_t, std::u32string_view> UnpackChannelHeader(std::u32string_view, long, uint32_t, uint32_t, int, int, short);
 
 protected:
+  int fConstantTimeOffset;
 };
 
 #endif
