@@ -1,38 +1,35 @@
+import os
 import pymongo
 from pymongo import MongoClient
-from bson.objectid import ObjectId
-import os
 
 
+pswd = os.environ['ATLAS_ADMIN_PASSWORD'] 
+path = os.environ['ATLAS_LINK'] 
+client = MongoClient(f'mongodb+srv://admin:{pswd}{path}')
 
-client = MongoClient("mongodb://daq:%s@localhost:27017/admin"%os.environ["MONGO_PASSWORD"])
-#uri = "mongodb://admin:%s@127.0.0.1:27017/admin"%os.environ["MONGO_PASSWORD"]
-#client = pymongo.MongoClient(uri)
-db = client['xenonnt']
+db = client['daq']
 collection = db['options']
 
-run_mode = {
-	"_id": ObjectId("5d30e9d05e13ab6116c43bf9"),
-    "name": "default_firmware_settings",
-    "user": "zhut",
-    "description": "Setup for default firmware",
-    "detector" : "NaI",
-    "mongo_uri": "mongodb://daq:%s@localhost:27017/admin"%os.environ["MONGO_PASSWORD"],
-    "mongo_database": "xenonnt",
-    "mongo_collection": "test_NaI",
+doc = {
+    "name": "triggerless_test",
+    "user": "elykov",
+    "source": "none",
+    "description": "Test config for a triggerless readout of V1725SB boards",
+    "detector" : "Test detector",
     "run_start":0,
-    "strax_chunk_overlap": 500000000,
+    "strax_chunk_overlap": 0.5,
     "strax_header_size": 31,
-    "strax_output_path": "/home/zhut/raw",
-    "strax_chunk_length": 5000000000,
+    "strax_output_path": "/home/alex/raw",
+    "strax_chunk_length": 21,
     "strax_fragment_length": 220,
     "baseline_dac_mode": "fit",
     "baseline_value": 16000,
     "firmware_version": 1,
+    "compressor": "lz4",
     "boards":
     [
         {"crate": 0, "link": 4, "board": 165,
-            "vme_address": "FFFF0000", "type": "V1724", "host": "fdaq00_reader_7"},
+            "vme_address": "FFFF0000", "type": "V1725", "host": "fdaq0_reader"},
     ],
     "registers" : [
 		{
@@ -111,11 +108,12 @@ run_mode = {
     "channels":{"165":[0, 1, 2, 3, 4, 5, 6, 7]},
 }
 
-if collection.find_one({"name": run_mode['name']}) is not None:
-    print("Please provide a unique name!")
-
-try:
-    collection.insert_one(run_mode)
-except Exception as e:
-    print("Insert failed. Maybe your JSON is bad. Error follows:")
-    print(e)
+if collection.find_one({"name": doc["name"]}) is not None:
+    print(f'These options already exist. Please provide a unique name for the options doc!')
+else:
+    try:
+        collection.insert_one(doc)
+        print(f'Inserting a run doc with mode : {doc["name"]}')
+    except Exception as e:
+        print(f'Insert failed. Maybe your JSON is bad. Error follows:')
+        print(e)

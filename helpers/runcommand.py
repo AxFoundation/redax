@@ -1,8 +1,7 @@
 import os
-from pymongo import MongoClient
 import argparse
 import datetime
-
+from pymongo import MongoClient
 
 def main(coll):
     parser = argparse.ArgumentParser()
