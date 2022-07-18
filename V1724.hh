@@ -93,6 +93,7 @@ protected:
   int fDefaultDelay;
   int fDefaultPreTrig;
   int fRegisterFlags;
+  int fSumWFthreshold;
 
   // Stuff for clock reset tracking
   int fRolloverCounter;

@@ -37,6 +37,7 @@ V1724::V1724(std::shared_ptr<MongoLog>& log, std::shared_ptr<Options>& opts, int
   fPreTrigChRegister = 0x1038;
   fError = false;
   fBufferSize = 0x800000; // 8 MB total memory
+  fSumWFthreshold = 75; // some reasonable default
 
   fSampleWidth = 10;
   fClockCycle = 10;
@@ -239,7 +240,15 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
     // we're busy, let's check which channel
     std::string msg = "Board " + std::to_string(fBID) + " is BUSY:";
     for (unsigned ch = 0; ch < fNChannels; ch++) {
-      if (ReadRegister(fChStatusRegister + 0x100*ch) & 0x1) msg += " CH" + std::to_string(ch);
+      if (ReadRegister(fChStatusRegister + 0x100*ch) & 0x1) {
+        msg += " CH" + std::to_string(ch);
+        if (fBID == 1390 && ch == 0) {
+          // sumwf went busy, must raise its threshold
+          fSumWFthreshold += 5;
+          fLog->Entry(MongoLog::Warning, "Raising sum wf threshold to %d", fSumWFthreshold);
+          WriteRegister(fChTrigRegister, fSumWFthreshold);
+        }
+      }
     }
     fLog->Entry(MongoLog::Local, msg);
   }
@@ -293,6 +302,7 @@ int V1724::LoadDAC(std::vector<uint16_t>& dac_values){
 
 int V1724::SetThresholds(std::vector<uint16_t> vals) {
   int ret = 0;
+  if (fBID == 1390 && vals.size() > 0) fSumWFthreshold = vals[0];
   for (unsigned ch = 0; ch < fNChannels; ch++)
     ret += WriteRegister(fChTrigRegister + 0x100*ch, vals[ch]);
   return ret;
