@@ -52,7 +52,7 @@ class StraxFormatter{
   */
 
 public:
-  StraxFormatter(std::shared_ptr<Options>&, std::shared_ptr<MongoLog>&);
+  StraxFormatter(std::shared_ptr<Options>&, std::shared_ptr<MongoLog>&, const std::map<int, std::vector<std::shared_ptr<V1724>>>&);
   ~StraxFormatter();
 
   void Close(std::map<int,int>& ret);
@@ -71,7 +71,6 @@ private:
   void WriteOutChunk(int);
   void WriteOutChunks();
   void End();
-  void GenerateArtificialDeadtime(int64_t, const std::shared_ptr<V1724>&);
   void AddFragmentToBuffer(std::string, uint32_t, int);
   std::vector<std::string> GetChunkNames(int);
 
@@ -89,10 +88,10 @@ private:
   int fFullFragmentSize;
   int fBufferNumChunks;
   int fWarnIfChunkOlderThan;
+  int fRunNumber;
   unsigned fChunkNameLength;
   int64_t fFullChunkLength;
   std::string fOutputPath, fHostname, fFullHostname;
-  std::shared_ptr<Options> fOptions;
   std::shared_ptr<MongoLog> fLog;
   std::atomic_bool fActive;
   std::map<int, std::list<std::string>> fChunks, fOverlaps;
@@ -105,6 +104,7 @@ private:
   std::map<int, long> fBytesPerChunk;
   std::atomic_int fInputBufferSize, fOutputBufferSize;
   long fBytesProcessed;
+  std::map<int, std::vector<int>> fChannelMap;
 
   double fProcTimeDP, fProcTimeEv, fProcTimeCh, fCompTime;
   std::thread::id fThreadId;

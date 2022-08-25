@@ -267,7 +267,7 @@ int DAQController::OpenThreads(){
   fProcessingThreads.reserve(fNProcessingThreads);
   for(int i=0; i<fNProcessingThreads; i++){
     try {
-      fFormatters.emplace_back(std::make_unique<StraxFormatter>(fOptions, fLog));
+      fFormatters.emplace_back(std::make_unique<StraxFormatter>(fOptions, fLog, fDigitizers));
       fProcessingThreads.emplace_back(&StraxFormatter::Process, fFormatters.back().get());
     } catch(const std::exception& e) {
       fLog->Entry(MongoLog::Warning, "Error opening processing threads: %s",

@@ -308,7 +308,7 @@ int16_t Options::GetChannel(int bid, int cid){
     return bson_options["channels"][boardstring][cid].get_int32().value;
   }
   catch(std::exception& e){
-    fLog->Entry(MongoLog::Error, "Failed to look up board %i ch %i", bid, cid);
+    fLog->Entry(MongoLog::Local, "Failed to look up board %i ch %i", bid, cid);
     return -1;
   }
 }

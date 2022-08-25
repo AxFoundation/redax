@@ -57,7 +57,7 @@ const std::map<std::string, std::function<long(std::shared_ptr<std::string>&, st
   {"delete", compress_devnull}
 };
 
-StraxFormatter::StraxFormatter(std::shared_ptr<Options>& opts, std::shared_ptr<MongoLog>& log){
+StraxFormatter::StraxFormatter(std::shared_ptr<Options>& opts, std::shared_ptr<MongoLog>& log, const std::map<int, std::vector<std::shared_ptr<V1724>>>& digis){
   fActive = true;
   fChunkNameLength=6;
   fStraxHeaderSize=24;
@@ -65,37 +65,36 @@ StraxFormatter::StraxFormatter(std::shared_ptr<Options>& opts, std::shared_ptr<M
   fInputBufferSize = 0;
   fOutputBufferSize = 0;
   fProcTimeDP = fProcTimeEv = fProcTimeCh = fCompTime = 0.;
-  fOptions = opts;
-  fChunkLength = long(fOptions->GetDouble("strax_chunk_length", 5)*1e9); // default 5s
-  fChunkOverlap = long(fOptions->GetDouble("strax_chunk_overlap", 0.5)*1e9); // default 0.5s
-  fFragmentBytes = fOptions->GetInt("strax_fragment_payload_bytes", 110*2);
+  fChunkLength = long(opts->GetDouble("strax_chunk_length", 5)*1e9); // default 5s
+  fChunkOverlap = long(opts->GetDouble("strax_chunk_overlap", 0.5)*1e9); // default 0.5s
+  fFragmentBytes = opts->GetInt("strax_fragment_payload_bytes", 110*2);
   fFullFragmentSize = fFragmentBytes + fStraxHeaderSize;
   try {
-    fCompressor = compressors.at(fOptions->GetString("compressor", "lz4"));
+    fCompressor = compressors.at(opts->GetString("compressor", "lz4"));
   } catch (...) {
     fLog->Entry(MongoLog::Error, "Invalid compressor specified");
     throw std::runtime_error("Invalid compressor");
   }
   fFullChunkLength = fChunkLength+fChunkOverlap;
-  fHostname = fOptions->Hostname();
-  std::string run_name;
+  fHostname = opts->Hostname();
   const int run_name_length = 6;
-  int run_num = fOptions->GetInt("number", -1);
-  if (run_num == -1) run_name = "run";
-  else {
-    run_name = std::to_string(run_num);
-    if (run_name.size() < run_name_length)
-      run_name.insert(0, run_name_length - run_name.size(), int('0'));
-  }
+  std::string run_name(run_name_length+1, '\0');
+  fRunNumber = opts->GetInt("number", -1);
+  if (fRunNumber == -1) run_name = "run";
+  else sprintf(run_name.data(), "06d", fRunNumber); // run name length is 6
+
+  // cache channel map
+  for (const auto& link : digis) for (const auto& digi: link) for (unsigned ch = 0; ch < digi->GetNumChannels; ++ch)
+    fChannelMap[digi->fBID()].push_back(Options->GetChannel(digi->fBID(), ch));
 
   fEmptyVerified = 0;
   fLog = log;
 
-  fBufferNumChunks = fOptions->GetInt("strax_buffer_num_chunks", 2);
-  fWarnIfChunkOlderThan = fOptions->GetInt("strax_chunk_phase_limit", 2);
+  fBufferNumChunks = opts->GetInt("strax_buffer_num_chunks", 2);
+  fWarnIfChunkOlderThan = opts->GetInt("strax_chunk_phase_limit", 2);
   fMutexWaitTime.reserve(1<<20);
 
-  std::string output_path = fOptions->GetString("strax_output_path", "./");
+  std::string output_path = opts->GetString("strax_output_path", "./");
   try{
     fs::path op(output_path);
     op /= run_name;
@@ -133,25 +132,6 @@ void StraxFormatter::GetDataPerChan(std::map<int, int>& ret) {
   return;
 }
 
-void StraxFormatter::GenerateArtificialDeadtime(int64_t timestamp, const std::shared_ptr<V1724>& digi) {
-  std::string fragment;
-  fragment.reserve(fFullFragmentSize);
-  timestamp *= digi->GetClockWidth(); // TODO nv
-  int32_t length = fFragmentBytes>>1;
-  int16_t sw = digi->SampleWidth(), channel = digi->GetADChannel(), zero = 0;
-  fragment.append((char*)&timestamp, sizeof(timestamp));
-  fragment.append((char*)&length, sizeof(length));
-  fragment.append((char*)&sw, sizeof(sw));
-  fragment.append((char*)&channel, sizeof(channel));
-  fragment.append((char*)&length, sizeof(length));
-  fragment.append((char*)&zero, sizeof(zero)); // fragment_i
-  fragment.append((char*)&zero, sizeof(zero)); // baseline
-  for (; length > 0; length--)
-    fragment.append((char*)&zero, sizeof(zero)); // wf
-  AddFragmentToBuffer(std::move(fragment), 0, 0);
-  return;
-}
-
 void StraxFormatter::ProcessDatapacket(std::unique_ptr<data_packet> dp){
   // Take a buffer and break it up into one document per channel
   auto it = dp->buff.begin();
@@ -174,7 +154,7 @@ void StraxFormatter::ProcessDatapacket(std::unique_ptr<data_packet> dp){
         missed = false;
         // this happens quite rarely, the chance of overwriting ourselves is vanishing
         // but it's nice to be able to know why we missed an event
-        std::string filename = std::to_string(fOptions->GetInt("number", -1)) + "_missed";
+        std::string filename = std::to_string(fRunNumber) + "_missed";
         std::ofstream fout(filename, std::ios::out | std::ios::binary);
         fout.write((char*)dp->buff.data(), dp->buff.size()*sizeof(dp->buff[0]));
         fout.close();
@@ -233,7 +213,7 @@ int StraxFormatter::ProcessChannel(std::u32string_view buff, int words_in_event,
   uint32_t samples_in_pulse = wf.size()*sizeof(char32_t)/sizeof(uint16_t);
   uint16_t sw = dp->digi->SampleWidth();
   int samples_per_frag= fFragmentBytes>>1;
-  int16_t global_ch = fOptions->GetChannel(dp->digi->bid(), channel);
+  int16_t global_ch = fChannelMap[dp->digi->bid()][channel];
   // Failing to discern which channel we're getting data from seems serious enough to throw
   if(global_ch==-1)
     throw std::runtime_error("Failed to parse channel map. I'm gonna just kms now.");
@@ -298,11 +278,14 @@ void StraxFormatter::AddFragmentToBuffer(std::string fragment, uint32_t ts, int 
 
   fOutputBufferSize += fFullFragmentSize;
 
-  if(!overlap){
+  auto chunks = {&fChunks, &fOverlaps};
+  (*chunks[overlap])[chunk_id].emplace_back(std::move(fragment));
+
+/*  if(!overlap){
     fChunks[chunk_id].emplace_back(std::move(fragment));
   } else {
     fOverlaps[chunk_id].emplace_back(std::move(fragment));
-  }
+  }*/
 }
 
 int StraxFormatter::ReceiveDatapackets(std::list<std::unique_ptr<data_packet>>& in, int bytes) {

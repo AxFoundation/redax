@@ -334,9 +334,10 @@ std::tuple<int64_t, int, uint16_t, std::u32string_view> V1724::UnpackChannelHead
   // More rollover logic here, because channels are independent and the
   // processing is multithreaded. We leverage the fact that readout windows are
   // short and polled frequently compared to the rollover timescale, so there
-  // will never be a large difference in timestamps in one data packet
-  if (ch_time > 15e8 && header_time < 5e8 && rollovers != 0) rollovers--;
-  else if (ch_time < 5e8 && header_time > 15e8) rollovers++;
+  // will never be a large difference in timestamps in one data packet.
+  // Allegedly
+  rollovers -= 1*(ch_time > 15e8 && header_time < 5e8 && rollovers != 0); // header rolled while channel hasn't
+  rollovers += 1*(ch_time < 5e8 && header_time > 15e8); // channel rolled while header hasn't
   return {((rollovers<<31)+ch_time)*fClockCycle - fDelayPerCh[ch] - fPreTrigPerCh[ch], words, 0, sv.substr(2, words-2)};
 }
 
