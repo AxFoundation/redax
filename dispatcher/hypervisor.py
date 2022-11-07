@@ -14,7 +14,7 @@ def date_now():
 
 
 class Hypervisor(object):
-    __version__ = '4.0.3'
+    __version__ = '4.0.4'
     def __init__(self,
                  db,
                  logger,
@@ -405,19 +405,51 @@ class Hypervisor(object):
         if not hasattr(self, 'mongo_connect'):
             self.logger.error('Darryl hasn\'t made this work in testing yet')
             raise ValueError('This only works in prod')
-        ok, not_ok = [], []
+        
+        timeout_list, running_list = [], []
         physical_status = self.mongo_connect.physical_status
-        for phys_det, statuses in physical_status.items():
-            if self.mongo_connect.combine_statuses(statuses) in [daqnt.DAQ_STATUS.TIMEOUT]:
-                not_ok.append(phys_det)
-            else:
-                ok.append(phys_det)
-        self.logger.debug(f'These detectors are ok: {ok}, these aren\'t: {not_ok}')
-        if self.detector in not_ok:
-            # welp, looks like we're part of the problem
+        latest_status = self.mongo_connect.latest_status
+        host_config = self.mongo_connect.host_config
+        phys_stat = {k: [] for k in config}
+        now_time = time.time()
+        for logical in latest_status.keys():
+            log_status = latest_status[logical]["status"]
+            for n, doc in latest_status[logical]['readers'].items():
+                if doc is None:
+                    self.logger.debug(f'{n} seems to have been offline for a few days')
+                    continue
+                det = host_config[doc['host']]
+                status = self.mongo_connect.extract_status(doc, now_time)
+                doc['status'] = status
+                phys_stat[det].append(status)
+                self.logger.debug(f'{det}: {doc["host"]} is in {status}')
+            for n, doc in self.latest_status[logical]['controller'].items():
+                if doc is None:
+                    self.logger.debug(f'{n} seems to have been offline for a few days')
+                    continue
+                det = host_config[doc['host']]
+                status = self.mongo_connect.extract_status(doc, now_time)
+                doc['status'] = status
+                phys_stat[det].append(status)
+                self.logger.debug(f'{det}: {doc["host"]} is in {status}')
+            for det in latest_status[logical]['detectors'].keys():
+                phy_status = latest_status[logical]['detectors']['status']
+                agg_status = self.mongo_connect.combine_statuses(phys_stat[det])
+                self.logger.debug(f'{logical} is {log_status}, {det} is {phy_status} -> {agg_stat}')
+                #if phy_status in [daqnt.DAQ_STATUS.TIMEOUT]: timeout_list.append(phys_det)
+                #else: running_list.append(phys_det)
+                if (phy_status != agg_status) or (phy_status in ['ERROR','TIMEOUT','UNKNOWN']):
+                    timeout_list.append(det)
+                else:
+                    running_list.append(det)
+                    
+        self.logger.debug(f'These detectors are not in timeout: {running_list}, '
+                          f'these are in timeout: {timeout_list}')
+        # check if the TPC is part of the problem
+        if 'tpc' in timeout_list:
             return False
 
-        if len(ok) == len(physical_status):
+        if len(timeout_list) == len(physical_status):
             self.logger.error('Uh, how did you get here???')
             self.slackbot.send_message('This happened again, you should really'
                     ' get someone to fix this', tags='ALL')
@@ -428,12 +460,12 @@ class Hypervisor(object):
                                        add_tags='ALL')
 
         # ok, we aren't the problem, let's see about unlinking
-        if len(ok) == 1:
+        if len(running_list) == 1:
             # everyone else has died, it's just us left
             logical_detectors = physical_status.keys()
-        elif self.mongo_connect.is_linked(ok[0], ok[1]):
+        elif self.mongo_connect.is_linked(running_list[0], running_list[1]):
             # the detector we are linked with is fine, the other one crashed
-            logical_detectors = [ok, not_ok]
+            logical_detectors = [running_list, timeout_list]
         else:
             # the detector we linked with crashed, and the other one is fine
             logical_detectors = physical_status.keys()

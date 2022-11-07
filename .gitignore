@@ -5,6 +5,7 @@
 # temporary files
 *.swp
 *~
+*#
 
 # executable
 redax

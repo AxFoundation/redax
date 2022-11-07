@@ -90,25 +90,25 @@ def main(config, control_mc, logger, daq_config, vme_config, SlackBot, runs_mc, 
         # Get most recent goal state from database. Users will update this from the website.
         if (goal_state := mc.get_wanted_state()) is None:
             continue
-        # Get the Super-Detector configuration
-        current_config = mc.get_super_detector()
+        # Get the Logical Detector configuration
+        current_config = mc.get_logical_detector()
         # Get most recent check-in from all connected hosts
         if (latest_status := mc.get_update(current_config)) is None:
             continue
-
         # Print an update
-        for detector in latest_status.keys():
-            state = 'ACTIVE' if goal_state[detector]['active'] == 'true' else 'INACTIVE'
-            msg = (f'The {detector} should be {state} and is '
-                   f'{latest_status[detector]["status"].name}')
-            if latest_status[detector]['number'] != -1:
-                msg += f' ({latest_status[detector]["number"]})'
-            logger.debug(msg)
+        for logical in latest_status.keys():
+            for det in latest_status[logical]['detectors'].keys():
+                state = 'ACTIVE' if goal_state[det]['active'] == 'true' else 'INACTIVE'
+                msg = (f'{logical} {det} should be {state}: '
+                       f'logical detector is {latest_status[logical]["status"]}, '
+                       f'physical detector is {latest_status[logical]["detectors"][det]["status"]}')
+                if latest_status[logical]['number'] != -1:
+                    msg += f' ({latest_status[logical]["number"]})'
+                logger.debug(msg)
         msg = (f"Linking: tpc-mv: {mc.is_linked('tpc', 'muon_veto')}, "
                f"tpc-nv: {mc.is_linked('tpc', 'neutron_veto')}, "
                f"mv-nv: {mc.is_linked('muon_veto', 'neutron_veto')}")
         logger.debug(msg)
-
         # Decision time. Are we actually in our goal state? If not what should we do?
         dc.solve_problem(latest_status, goal_state)
 
