@@ -202,6 +202,8 @@ std::vector<BoardType> Options::GetBoards(std::string type){
     catch(const std::exception &e){
       // If there is no host field then no biggie. Assume we have just 1 host.
     };
+    if (ele["skip"] && ele["skip"].get_bool().value == true)
+      continue;
     BoardType bt;
     bt.link = ele["link"].get_int32();
     bt.crate = ele["crate"].get_int32();
