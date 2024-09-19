@@ -408,7 +408,7 @@ class Hypervisor(object):
         ok, not_ok = [], []
         physical_status = self.mongo_connect.physical_status
         for phys_det, statuses in physical_status.items():
-            if self.mongo_connect.combine_statuses(statuses) in [daqnt.DAQ_STATUS.TIMEOUT]:
+            if self.mongo_connect.combine_statuses(statuses) not in [daqnt.DAQ_STATUS.RUNNING, daqnt.DAQ_STATUS.ARMED]:
                 not_ok.append(phys_det)
             else:
                 ok.append(phys_det)
