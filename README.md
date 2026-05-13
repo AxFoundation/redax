@@ -66,6 +66,23 @@ able to arm the DAQ.
 
 If you run with the dispatcher you additionally need a collection called **detector_control**, which will supercede control as the top-level user interface. The **control** collection will still be used by the dispatcher to control the readout nodes but the user should not use it in this case. If there is just one readout node you may want to skip the dispatcher and just directly control that node for simplicity.
 
+## Corrupt data handling (formatter)
+
+The formatter can now handle malformed/corrupt datapackets gracefully and continue readout while marking affected periods with artificial deadtime fragments.
+
+These options are read from the run/options document:
+
+- `graceful_corruption_handling` (int/bool, default `1`)
+  - `1`: catch packet/event parsing exceptions, log, skip bad packet, continue
+  - `0`: fail-fast behavior (exceptions propagate as before)
+- `inject_deadtime_on_corrupt` (int/bool, default `1`)
+  - `1`: insert artificial deadtime marker when corruption/fail is handled
+  - `0`: skip marker insertion
+
+Notes:
+- This mitigation does not fix underlying hardware/driver transport issues.
+- Artificial deadtime markers are intended for downstream bookkeeping (e.g. veto/deadtime accounting in straxen).
+
 ## First steps: from nothing to starting a run
 
 Install all prerequisites, a mongodb database, and the redax software as described above. If you have XENON wiki access there are some build notes on the DAQ page [here](https://xe1t-wiki.lngs.infn.it/doku.php?id=xenon:xenonnt:dsg:daq#reader wiki), however if you don't have access don't worry too much since everything is straight off google searches.
