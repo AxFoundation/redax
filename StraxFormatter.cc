@@ -67,7 +67,7 @@ StraxFormatter::StraxFormatter(std::shared_ptr<Options>& opts, std::shared_ptr<M
   fCorruptPackets = 0;
   fInputBufferSize = 0;
   fOutputBufferSize = 0;
-  fGracefulCorruptHandling = fOptions->GetInt("graceful_corruption_handling", 0) != 0;
+  fGracefulCorruptHandling = fOptions->GetInt("graceful_corruption_handling", 1) != 0;
   fInjectDeadtimeOnCorrupt = fOptions->GetInt("inject_deadtime_on_corrupt", 1) != 0;
   fProcTimeDP = fProcTimeEv = fProcTimeCh = fCompTime = 0.;
   fChunkLength = long(fOptions->GetDouble("strax_chunk_length", 5)*1e9); // default 5s
