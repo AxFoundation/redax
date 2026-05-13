@@ -72,6 +72,7 @@ private:
   void WriteOutChunks();
   void End();
   void GenerateArtificialDeadtime(int64_t, const std::shared_ptr<V1724>&);
+  void HandleCorruptPacket(const std::unique_ptr<data_packet>&, const std::string&);
   void AddFragmentToBuffer(std::string, uint32_t, int);
   std::vector<std::string> GetChunkNames(int);
 
@@ -105,6 +106,9 @@ private:
   std::map<int, long> fBytesPerChunk;
   std::atomic_int fInputBufferSize, fOutputBufferSize;
   long fBytesProcessed;
+  bool fGracefulCorruptHandling;
+  bool fInjectDeadtimeOnCorrupt;
+  long fCorruptPackets;
 
   double fProcTimeDP, fProcTimeEv, fProcTimeCh, fCompTime;
   std::thread::id fThreadId;
